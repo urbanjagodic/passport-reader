@@ -32,6 +32,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.EditText;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -128,6 +129,8 @@ public class MainActivity extends AppCompatActivity {
     private View mainLayout;
     private View loadingLayout;
 
+    private Button readPassportButton;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -157,6 +160,7 @@ public class MainActivity extends AppCompatActivity {
         passportNumberView = findViewById(R.id.input_passport_number);
         expirationDateView = findViewById(R.id.input_expiration_date);
         birthDateView = findViewById(R.id.input_date_of_birth);
+        readPassportButton = findViewById(R.id.readPassport);
 
         mainLayout = findViewById(R.id.main_layout);
         loadingLayout = findViewById(R.id.loading_layout);
@@ -178,6 +182,38 @@ public class MainActivity extends AppCompatActivity {
             public void afterTextChanged(Editable s) {
                 PreferenceManager.getDefaultSharedPreferences(MainActivity.this)
                         .edit().putString(KEY_PASSPORT_NUMBER, s.toString()).apply();
+            }
+        });
+
+        readPassportButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+                Intent intent = new Intent(getApplicationContext(), this.getClass());
+                intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                PendingIntent pendingIntent = PendingIntent.getActivity(getApplicationContext(), 0, intent, PendingIntent.FLAG_MUTABLE);
+                String[][] filter = new String[][]{new String[]{"android.nfc.tech.IsoDep"}};
+
+                if (NfcAdapter.ACTION_TECH_DISCOVERED.equals(intent.getAction())) {
+                    Tag tag = intent.getExtras().getParcelable(NfcAdapter.EXTRA_TAG);
+                    if (Arrays.asList(tag.getTechList()).contains("android.nfc.tech.IsoDep")) {
+                        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
+                        String passportNumber = preferences.getString(KEY_PASSPORT_NUMBER, null);
+                        String expirationDate = convertDate(preferences.getString(KEY_EXPIRATION_DATE, null));
+                        String birthDate = convertDate(preferences.getString(KEY_BIRTH_DATE, null));
+                        if (passportNumber != null && !passportNumber.isEmpty()
+                                && expirationDate != null && !expirationDate.isEmpty()
+                                && birthDate != null && !birthDate.isEmpty()) {
+                            BACKeySpec bacKey = new BACKey(passportNumber, birthDate, expirationDate);
+                            new ReadTask(IsoDep.get(tag), bacKey).execute();
+                            mainLayout.setVisibility(View.GONE);
+                            loadingLayout.setVisibility(View.VISIBLE);
+                        } else {
+                            Snackbar.make(passportNumberView, R.string.error_input, Snackbar.LENGTH_SHORT).show();
+                        }
+                    }
+                }
+
             }
         });
 
@@ -258,6 +294,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        Log.i("nfc", "Came into onNewIntent");
         if (NfcAdapter.ACTION_TECH_DISCOVERED.equals(intent.getAction())) {
             Tag tag = intent.getExtras().getParcelable(NfcAdapter.EXTRA_TAG);
             if (Arrays.asList(tag.getTechList()).contains("android.nfc.tech.IsoDep")) {
@@ -541,6 +578,13 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 MRZInfo mrzInfo = dg1File.getMRZInfo();
+
+                Log.i("nfc", String.format("DOB: %s, DOE: %s, GENDER: %s, STATE: %s, DOC_CODE: %s, DOC_NUM: %s, DOC_TYPE %s, NATIONALITY: %s, NAME: %s, LASTNAME: %s",
+                        mrzInfo.getDateOfBirth(), mrzInfo.getDateOfExpiry(), mrzInfo.getGender().name(), mrzInfo.getIssuingState(),
+                        mrzInfo.getDocumentCode(), mrzInfo.getDocumentNumber(), mrzInfo.getDocumentType(),
+                        mrzInfo.getNationality(), mrzInfo.getSecondaryIdentifier().replace("<", " "), mrzInfo.getPrimaryIdentifier().replace("<", " ")));
+
+                Log.i("nfc", String.format("IMAGE_BASE_65: %s", imageBase64));
 
                 intent.putExtra(ResultActivity.KEY_FIRST_NAME, mrzInfo.getSecondaryIdentifier().replace("<", " "));
                 intent.putExtra(ResultActivity.KEY_LAST_NAME, mrzInfo.getPrimaryIdentifier().replace("<", " "));
